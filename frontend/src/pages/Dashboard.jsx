@@ -3,13 +3,20 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../services/api";
 
-function normalize(text) {
-  return String(text || "")
-    .replace(/\|/g, " ")
+function cleanMemoryText(value) {
+  return String(value || "")
+    .replace(/\s*\|\s*involving:\s*user/gi, "")
+    .replace(/\s*\|\s*when:\s*\d{4}-\d{2}-\d{2}/gi, "")
     .replace(/\s+/g, " ")
+    .replace(/^customer said:\s*/i, "")
+    .trim();
+}
+
+function normalize(text) {
+  return cleanMemoryText(text)
     .replace(/[^\w\s]/g, "")
-    .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .trim();
 }
 
 function isNearDuplicate(first, second) {
@@ -19,26 +26,25 @@ function isNearDuplicate(first, second) {
   if (!a || !b) return false;
   if (a === b || a.includes(b) || b.includes(a)) return true;
 
-  const wordsA = new Set(a.split(" ").filter(w => w.length > 2));
-  const wordsB = new Set(b.split(" ").filter(w => w.length > 2));
+  const wordsA = new Set(a.split(" ").filter(word => word.length > 2));
+  const wordsB = new Set(b.split(" ").filter(word => word.length > 2));
 
-  if (!wordsA.size || !wordsB.size) return false;
+  if (wordsA.size < 5 || wordsB.size < 5) return false;
 
-  const intersection = [...wordsA].filter(w => wordsB.has(w)).length;
-  const similarity =
-    intersection / (wordsA.size + wordsB.size - intersection);
+  const overlap = [...wordsA].filter(word => wordsB.has(word)).length;
+  const containment = overlap / Math.min(wordsA.size, wordsB.size);
+  const jaccard = overlap / (wordsA.size + wordsB.size - overlap);
 
-  return similarity >= 0.85;
+  return containment >= 0.9 && jaccard >= 0.72;
 }
 
 function cleanMemories(memories) {
   const unique = [];
 
   for (const memory of memories) {
-    const text =
-      typeof memory === "string"
-        ? memory.trim()
-        : memory?.text?.trim();
+    const text = cleanMemoryText(
+      typeof memory === "string" ? memory : memory?.text
+    );
 
     if (!text) continue;
 
@@ -61,11 +67,56 @@ function categorizeMemory(memory) {
     return "Support Preferences";
   }
 
-  if (/contacted support|reported|complaint|battery|issue|problem|troubleshoot/.test(text)) {
+  if (/contacted support|reported|complaint|battery|issue|problem|troubleshoot|warranty/.test(text)) {
     return "Previous Support Activity";
   }
 
   return "Other Information";
+}
+
+function getPreferenceUpdate(memory) {
+  const match = memory.match(
+    /updated .*?preference from\s+(email|phone)[^.!]*?\bto\s+(email|phone)/i
+  );
+
+  if (!match) return null;
+
+  const dateMatch = memory.match(/\bWhen:\s*(\d{4}-\d{2}-\d{2})/i);
+
+  return {
+    from: match[1].toLowerCase(),
+    to: match[2].toLowerCase(),
+    date: dateMatch ? dateMatch[1] : ""
+  };
+}
+
+function getPreferenceStatus(preferences) {
+  const updates = preferences
+    .map(getPreferenceUpdate)
+    .filter(Boolean)
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
+  if (updates.length > 0) {
+    return {
+      current: updates[0].to,
+      date: updates[0].date,
+      conflict: false
+    };
+  }
+
+  const combined = preferences.join(" ").toLowerCase();
+  const email = /\bemail\b/.test(combined);
+  const phone = /\bphone\b/.test(combined);
+
+  if (email && phone) {
+    return { current: null, date: "", conflict: true };
+  }
+
+  return {
+    current: email ? "email" : phone ? "phone" : null,
+    date: "",
+    conflict: false
+  };
 }
 
 function Dashboard() {
@@ -74,6 +125,7 @@ function Dashboard() {
   const [customer, setCustomer] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [memories, setMemories] = useState([]);
+  const [showAllMemories, setShowAllMemories] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -160,23 +212,42 @@ function Dashboard() {
       categories[categorizeMemory(memory)].push(memory);
     });
 
+    const preferenceStatus = getPreferenceStatus(
+      categories["Support Preferences"]
+    );
+
+    // Keep the original records, but hide older preferences that
+    // were explicitly superseded by a newer preference update.
+    if (preferenceStatus.current && !preferenceStatus.conflict) {
+      const current = preferenceStatus.current;
+
+      categories["Support Preferences"] =
+        categories["Support Preferences"].filter(memory => {
+          const update = getPreferenceUpdate(memory);
+
+          if (update) return true;
+
+          const text = memory.toLowerCase();
+
+          if (current === "phone" && /\bemail\b/.test(text)) {
+            return false;
+          }
+
+          if (current === "email" && /\bphone\b/.test(text)) {
+            return false;
+          }
+
+          return true;
+        });
+    }
+
     return {
       total: cleaned.length,
-      categories
+      categories,
+      preferenceStatus,
+      original: cleaned
     };
   }, [memories]);
-
-  const preferenceConflict = useMemo(() => {
-    const preferences =
-      organizedMemories.categories["Support Preferences"];
-
-    const combined = preferences.join(" ").toLowerCase();
-
-    const mentionsEmail = /\bemail\b/.test(combined);
-    const mentionsPhone = /\bphone\b/.test(combined);
-
-    return mentionsEmail && mentionsPhone;
-  }, [organizedMemories]);
 
   const startNewConversation = async () => {
     if (creating) return;
@@ -221,6 +292,10 @@ function Dashboard() {
       </p>
     );
   }
+
+  const displayedCategories = showAllMemories
+    ? organizedMemories.categories
+    : organizedMemories.categories;
 
   return (
     <div className="dashboard-container">
@@ -279,9 +354,7 @@ function Dashboard() {
                 <strong>{latestConversation.title}</strong>
                 <small>
                   {latestConversation.updated_at
-                    ? new Date(
-                        latestConversation.updated_at
-                      ).toLocaleString()
+                    ? new Date(latestConversation.updated_at).toLocaleString()
                     : "Previous conversation"}
                 </small>
               </div>
@@ -309,9 +382,7 @@ function Dashboard() {
                     <strong>{conversation.title}</strong>
                     <small>
                       {conversation.created_at
-                        ? new Date(
-                            conversation.created_at
-                          ).toLocaleString()
+                        ? new Date(conversation.created_at).toLocaleString()
                         : ""}
                     </small>
                   </div>
@@ -341,25 +412,39 @@ function Dashboard() {
             <strong>{organizedMemories.total}</strong> unique memory records
           </p>
 
-          {preferenceConflict && (
+          {organizedMemories.preferenceStatus.current && (
+            <p>
+              <strong>Current support preference:</strong>{" "}
+              {organizedMemories.preferenceStatus.current === "phone"
+                ? "Phone support"
+                : "Email support"}
+              {organizedMemories.preferenceStatus.date
+                ? ` (updated ${organizedMemories.preferenceStatus.date})`
+                : ""}
+            </p>
+          )}
+
+          {organizedMemories.preferenceStatus.conflict && (
             <div className="memory-conflict">
               <strong>Conflicting Support Preferences</strong>
               <p>
                 Both email and phone preferences appear in your records.
-                Please confirm the customer's current preference instead
-                of assuming which one is correct.
+                Please confirm the customer's current preference.
               </p>
             </div>
           )}
 
-          {Object.entries(organizedMemories.categories).map(
+          {Object.entries(displayedCategories).map(
             ([category, items]) =>
               items.length > 0 && (
                 <div className="memory-category" key={category}>
                   <h4>{category}</h4>
+
                   <ul className="memory-list">
                     {items.map((memory, index) => (
-                      <li key={`${category}-${index}`}>{memory}</li>
+                      <li key={`${category}-${index}`}>
+                        {memory}
+                      </li>
                     ))}
                   </ul>
                 </div>
@@ -368,6 +453,26 @@ function Dashboard() {
 
           {organizedMemories.total === 0 && (
             <p>No saved memories available yet.</p>
+          )}
+
+          <button
+            className="dashboard-action"
+            onClick={() => setShowAllMemories(value => !value)}
+          >
+            {showAllMemories
+              ? "Show Memory Insights"
+              : "Show All Memory Records"}
+          </button>
+
+          {showAllMemories && (
+            <div className="memory-category">
+              <h4>All Original Memory Records</h4>
+              <ul className="memory-list">
+                {organizedMemories.original.map((memory, index) => (
+                  <li key={index}>{memory}</li>
+                ))}
+              </ul>
+            </div>
           )}
         </section>
 

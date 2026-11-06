@@ -5,6 +5,16 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 
+function formatAssistantText(value) {
+  return String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/<br\s*\/?\s*>/gi, "\n")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function Chat() {
   const navigate = useNavigate();
   const { conversationId } = useParams();
@@ -206,7 +216,7 @@ function Chat() {
 
               {item.role === "assistant" ? (
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {item.text}
+                  {formatAssistantText(item.text)}
                 </ReactMarkdown>
               ) : (
                 item.text

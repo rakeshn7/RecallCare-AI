@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic[email]
+python-dotenv
+python-jose[cryptography]
+passlib[argon2]
+groq
+hindsight-client
