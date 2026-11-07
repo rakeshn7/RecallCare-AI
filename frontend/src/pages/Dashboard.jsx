@@ -1,4 +1,3 @@
-
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../services/api";
@@ -76,7 +75,7 @@ function categorizeMemory(memory) {
 
 function getPreferenceUpdate(memory) {
   const match = memory.match(
-    /updated .*?preference from\s+(email|phone)[^.!]*?\bto\s+(email|phone)/i
+    /updated\s+.*?preference from\s+(email|phone).*?\bto\s+(email|phone)/i
   );
 
   if (!match) return null;
@@ -216,8 +215,7 @@ function Dashboard() {
       categories["Support Preferences"]
     );
 
-    // Keep the original records, but hide older preferences that
-    // were explicitly superseded by a newer preference update.
+    // Hide older preferences only when a newer explicit update exists.
     if (preferenceStatus.current && !preferenceStatus.conflict) {
       const current = preferenceStatus.current;
 
@@ -293,9 +291,16 @@ function Dashboard() {
     );
   }
 
-  const displayedCategories = showAllMemories
-    ? organizedMemories.categories
-    : organizedMemories.categories;
+  // Show three records per category by default.
+  // Show every record when the toggle is enabled.
+  const displayedCategories = Object.fromEntries(
+    Object.entries(organizedMemories.categories).map(
+      ([category, items]) => [
+        category,
+        showAllMemories ? items : items.slice(0, 3)
+      ]
+    )
+  );
 
   return (
     <div className="dashboard-container">
@@ -321,6 +326,7 @@ function Dashboard() {
 
           <section className="dashboard-card">
             <h3>AI Support Assistant</h3>
+
             <p>
               Get personalized help with your questions,
               complaints and support issues.
@@ -337,10 +343,12 @@ function Dashboard() {
 
           <section className="dashboard-card">
             <h3>Customer Memory</h3>
+
             <p>
               Hindsight remembers previous conversations,
               preferences and reported issues.
             </p>
+
             <span className="memory-status">Memory enabled</span>
           </section>
         </div>
@@ -352,9 +360,12 @@ function Dashboard() {
             <div className="conversation-item">
               <div>
                 <strong>{latestConversation.title}</strong>
+
                 <small>
                   {latestConversation.updated_at
-                    ? new Date(latestConversation.updated_at).toLocaleString()
+                    ? new Date(
+                        latestConversation.updated_at
+                      ).toLocaleString()
                     : "Previous conversation"}
                 </small>
               </div>
@@ -380,9 +391,12 @@ function Dashboard() {
                 <div className="conversation-item" key={conversation.id}>
                   <div>
                     <strong>{conversation.title}</strong>
+
                     <small>
                       {conversation.created_at
-                        ? new Date(conversation.created_at).toLocaleString()
+                        ? new Date(
+                            conversation.created_at
+                          ).toLocaleString()
                         : ""}
                     </small>
                   </div>
@@ -418,6 +432,7 @@ function Dashboard() {
               {organizedMemories.preferenceStatus.current === "phone"
                 ? "Phone support"
                 : "Email support"}
+
               {organizedMemories.preferenceStatus.date
                 ? ` (updated ${organizedMemories.preferenceStatus.date})`
                 : ""}
@@ -427,6 +442,7 @@ function Dashboard() {
           {organizedMemories.preferenceStatus.conflict && (
             <div className="memory-conflict">
               <strong>Conflicting Support Preferences</strong>
+
               <p>
                 Both email and phone preferences appear in your records.
                 Please confirm the customer's current preference.
@@ -463,17 +479,6 @@ function Dashboard() {
               ? "Show Memory Insights"
               : "Show All Memory Records"}
           </button>
-
-          {showAllMemories && (
-            <div className="memory-category">
-              <h4>All Original Memory Records</h4>
-              <ul className="memory-list">
-                {organizedMemories.original.map((memory, index) => (
-                  <li key={index}>{memory}</li>
-                ))}
-              </ul>
-            </div>
-          )}
         </section>
 
         {error && <p className="dashboard-error">{error}</p>}
