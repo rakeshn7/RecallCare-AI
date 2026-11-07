@@ -9,18 +9,14 @@ from fastapi import (
     Depends,
     status
 )
-
 from fastapi.middleware.cors import CORSMiddleware
-
 from fastapi.security import (
     HTTPBearer,
     HTTPAuthorizationCredentials
 )
-
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-
 from starlette.concurrency import run_in_threadpool
 
 from database import get_db
@@ -101,7 +97,7 @@ security = HTTPBearer()
 # --------------------------------------------------
 
 class ChatRequest(BaseModel):
-    message: str = Field(min_length=1)
+    message: str = Field(min_length=1, max_length=10000)
     conversation_id: str = Field(min_length=1)
 
 
@@ -540,12 +536,19 @@ async def chat(
             detail="Unable to save assistant response"
         )
 
-    # 7. Save only the customer's actual message to Hindsight.
-    # Avoid storing AI-generated statements as customer facts.
+    # 7. Save the customer's actual message to Hindsight.
+    # Include a timestamp so newer corrections can be identified.
     try:
+        recorded_at = datetime.now(timezone.utc).isoformat(
+            timespec="seconds"
+        )
+
         await save_memory(
             customer_id,
-            f"Customer said: {message}"
+            (
+                f"Customer statement (recorded_at: {recorded_at}): "
+                f"{message}"
+            )
         )
 
         print("HINDSIGHT MEMORY SAVED SUCCESSFULLY")

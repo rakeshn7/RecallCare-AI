@@ -8,12 +8,38 @@ import remarkGfm from "remark-gfm";
 function formatAssistantText(value) {
   return String(value || "")
     .replace(/\r\n?/g, "\n")
-    .replace(/<br\s*\/?\s*>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
     .replace(/&nbsp;/gi, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
+
+
+function formatTime(date = new Date()) {
+  return new Date(date).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+
+function getErrorMessage(err, fallback) {
+  const detail = err.response?.data?.detail;
+
+  if (typeof detail === "string") {
+    return detail;
+  }
+
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => item.msg || String(item))
+      .join(", ");
+  }
+
+  return fallback;
+}
+
 
 function Chat() {
   const navigate = useNavigate();
@@ -28,15 +54,7 @@ function Chat() {
   const messagesEndRef = useRef(null);
 
 
-  const getTime = (date = new Date()) => {
-    return new Date(date).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit"
-    });
-  };
-
-
-  // Load selected conversation
+  // Load messages belonging to the selected conversation.
   useEffect(() => {
     let active = true;
 
@@ -57,7 +75,7 @@ function Chat() {
             id: item.id,
             role: item.role,
             text: item.content,
-            time: getTime(item.created_at)
+            time: formatTime(item.created_at)
           }))
         );
 
@@ -69,12 +87,17 @@ function Chat() {
           navigate("/login");
         } else {
           setError(
-            err.response?.data?.detail ||
-            "Unable to load this conversation."
+            getErrorMessage(
+              err,
+              "Unable to load this conversation."
+            )
           );
         }
+
       } finally {
-        if (active) setLoadingHistory(false);
+        if (active) {
+          setLoadingHistory(false);
+        }
       }
     };
 
@@ -86,21 +109,24 @@ function Chat() {
   }, [conversationId, navigate]);
 
 
-  // Automatically scroll to latest message
+  // Scroll to the latest message.
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({
-      behavior: "smooth"
+      behavior: "smooth",
+      block: "end"
     });
   }, [messages, loading]);
 
 
-  // Send a message
+  // Send a message to RecallCare AI.
   const handleSend = async (e) => {
     e.preventDefault();
 
     const userMessage = message.trim();
 
-    if (!userMessage || loading || loadingHistory) return;
+    if (!userMessage || loading || loadingHistory) {
+      return;
+    }
 
     setMessage("");
     setLoading(true);
@@ -114,7 +140,7 @@ function Chat() {
         id: temporaryId,
         role: "user",
         text: userMessage,
-        time: getTime()
+        time: formatTime()
       }
     ]);
 
@@ -130,14 +156,21 @@ function Chat() {
           id: `assistant-${Date.now()}`,
           role: "assistant",
           text: response.data.reply,
-          time: getTime()
+          time: formatTime()
         }
       ]);
 
     } catch (err) {
-      const errorMessage =
-        err.response?.data?.detail ||
-        "Unable to process your request. Please try again.";
+      const errorMessage = getErrorMessage(
+        err,
+        "Unable to process your request. Please try again."
+      );
+
+      if (err.response?.status === 401) {
+        localStorage.removeItem("token");
+        navigate("/login");
+        return;
+      }
 
       setError(errorMessage);
 
@@ -147,7 +180,7 @@ function Chat() {
           id: `error-${Date.now()}`,
           role: "assistant",
           text: errorMessage,
-          time: getTime()
+          time: formatTime()
         }
       ]);
 
