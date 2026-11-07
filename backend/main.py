@@ -1,6 +1,7 @@
 
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+import logging
 from uuid import uuid4
 
 from fastapi import (
@@ -50,6 +51,8 @@ from memory import (
 )
 
 from ai_agent import generate_reply
+
+logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------
@@ -431,19 +434,10 @@ async def chat(
         )
 
     except Exception as error:
-        print("HINDSIGHT RECALL ERROR:", str(error))
+        logger.warning("hindsight_recall_failed")
         customer_memories = []
 
-    print("\n========== MEMORY DEBUG ==========")
-    print("CUSTOMER ID:", customer_id)
-    print("CONVERSATION ID:", conversation_id)
-    print("USER QUESTION:", message)
-    print("RECALLED MEMORIES:")
-
-    for item in customer_memories:
-        print("-", item)
-
-    print("=================================\n")
+    logger.info("hindsight_recall_completed")
 
     # 2. Retrieve recent messages from this conversation.
     recent_messages = db.query(ConversationMessage).filter(
@@ -506,7 +500,7 @@ async def chat(
         )
 
     except Exception as error:
-        print("AI GENERATION ERROR:", str(error))
+        logger.warning("ai_generation_failed")
 
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -551,10 +545,10 @@ async def chat(
             )
         )
 
-        print("HINDSIGHT MEMORY SAVED SUCCESSFULLY")
+        logger.info("hindsight_memory_saved")
 
     except Exception as error:
-        print("HINDSIGHT RETAIN ERROR:", str(error))
+        logger.warning("hindsight_retain_failed")
 
     return {
         "customer_id": customer_id,
@@ -577,14 +571,7 @@ async def get_memory_insights(
     try:
         memories = await list_customer_memories(customer_id)
 
-        print("\n========== MEMORY INSIGHTS ==========")
-        print("CUSTOMER ID:", customer_id)
-        print("TOTAL MEMORIES:", len(memories))
-
-        for memory in memories:
-            print("-", memory)
-
-        print("=====================================\n")
+        logger.info("hindsight_memory_insights_completed")
 
         return {
             "memories": memories,
@@ -593,7 +580,7 @@ async def get_memory_insights(
         }
 
     except Exception as error:
-        print("MEMORY INSIGHTS ERROR:", str(error))
+        logger.warning("hindsight_memory_insights_failed")
 
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

@@ -274,7 +274,7 @@ GROQ_MODEL=openai/gpt-oss-120b
 HINDSIGHT_BASE_URL=your_hindsight_base_url
 HINDSIGHT_API_KEY=your_hindsight_api_key
 
-SECRET_KEY=your_jwt_secret
+JWT_SECRET_KEY=your_jwt_secret
 ```
 
 **Important:** Never upload your actual `.env` file or API keys to GitHub.
